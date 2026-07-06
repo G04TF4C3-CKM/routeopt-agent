@@ -33,6 +33,14 @@ pip install -r requirements.txt
 python app.py data/sample_8_loads.txt --time-limit 12
 ```
 
+## Streamlit Demo
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The Streamlit app provides a simple UI to select a bundled scenario, set the driver time limit, and view the optimization results (driver counts, route times, feasibility, and a basic route‑length chart).
+
 Expected summary:
 
 ```text
