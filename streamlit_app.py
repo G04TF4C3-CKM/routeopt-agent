@@ -45,6 +45,7 @@ def _run_streamlit_app():
         normalize_load_rows_to_scenario_text,
         write_temp_scenario_file,
     )
+    from src.ui_utils import convert_time_limit_to_data_units, format_route_time
 
     st.title("🚚 RouteOpt Agent – Interactive Demo")
     st.caption("Run the optimizer on bundled, uploaded, or manually entered scenarios.")
@@ -56,8 +57,22 @@ def _run_streamlit_app():
             "Input mode",
             ("Bundled sample", "Upload file", "Manual entry"),
         )
-        time_limit = st.slider(
-            "Driver time limit (hours)", min_value=1.0, max_value=24.0, value=12.0, step=0.5
+        # New selectors for route-time units
+        data_unit = st.selectbox(
+            "Data route-time unit",
+            ("Minutes", "Hours", "Abstract units"),
+            index=1,
+        )
+        input_unit = st.selectbox(
+            "Enter driver time limit as",
+            ("Same as data unit", "Hours", "Minutes"),
+            index=0,
+        )
+        time_limit_input = st.number_input(
+            "Driver time limit",
+            min_value=0.0,
+            value=12.0,
+            step=0.5,
         )
 
         scenario_path: Path | None = None
