@@ -20,23 +20,54 @@ def _parse_numeric(val: str) -> float:
     except ValueError as exc:
         raise ValueError(f"Invalid numeric value: {val!r}") from exc
 
+def _parse_numbered_tuple_line(line: str) -> str:
+    """Parse a numbered tuple row like "1 (x1, y1) (x2, y2)".
 
+    Returns the legacy format string.
+    """
+    # Regex captures optional spaces, load number, and two coordinate tuples
+    pattern = re.compile(
+        r"^\s*(\d+)\s*\(\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\)\s*"
+        r"\(\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\)\s*$"
+    )
+    m = pattern.match(line)
+    if not m:
+        raise ValueError("Line does not match numbered tuple table format.")
+    # groups: 1=number, 2=px, 3=py, 4=dx, 5=dy
+    px, py, dx, dy = map(_parse_numeric, m.group(2, 3, 4, 5))
+    return f"({px}, {py}), ({dx}, {dy})"
 def parse_txt_loads(text: str) -> List[str]:
-    """Parse scenario text in the legacy ``(x, y), (x, y)`` format.
+    """Parse scenario text from user input.
 
-    Returns a list of the original rows (stripped of surrounding whitespace).
-    Raises ``ValueError`` with a human‑readable message on the first malformed line.
+    Supports:
+    - Legacy format ``(x, y), (x, y)`` one per line.
+    - Optional header line containing letters (e.g., "loadNumber pickup dropoff") which is ignored.
+    - Numbered tuple table format: ``1 (x1, y1) (x2, y2)`` (load number column optional).
+
+    Returns a list of rows in the legacy format.
+    Raises ``ValueError`` on the first malformed line.
     """
     rows: List[str] = []
+    header_skipped = False
     for i, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
         if not line:
-            continue  # skip blank lines
-        if not _TXT_ROW_REGEX.match(line):
+            continue
+        # Skip a header line if it looks like a column header (e.g., contains 'loadNumber' or 'pickup'/'dropoff')
+        if not header_skipped and re.search(r"(load\s*number|pickup|dropoff)", line, re.IGNORECASE):
+            header_skipped = True
+            continue
+        # Legacy format
+        if _TXT_ROW_REGEX.match(line):
+            rows.append(line)
+            continue
+        # Numbered tuple format
+        try:
+            rows.append(_parse_numbered_tuple_line(line))
+        except ValueError:
             raise ValueError(
-                f"Line {i} does not match the required format '(pickup_x, pickup_y), (dropoff_x, dropoff_y)'."
+                f"Line {i} does not match the required format."
             )
-        rows.append(line)
     if not rows:
         raise ValueError("No load rows found in the provided text.")
     return rows

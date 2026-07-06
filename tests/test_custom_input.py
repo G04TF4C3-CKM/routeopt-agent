@@ -32,3 +32,12 @@ def test_normalize_load_rows_to_scenario_text():
     rows = ["(1.0, 2.0), (3.0, 4.0)", "(2.0, 1.0), (4.0, 3.0)"]
     text = normalize_load_rows_to_scenario_text(rows)
     assert text == "(1.0, 2.0), (3.0, 4.0)\n(2.0, 1.0), (4.0, 3.0)\n"
+def test_parse_numbered_tuple_loads_valid():
+    txt = """loadNumber pickup dropoff\n1 (1.0, 2.0) (3.0, 4.0)\n2 (2.0, 1.0) (4.0, 3.0)\n"""
+    rows = parse_txt_loads(txt)
+    assert rows == ["(1.0, 2.0), (3.0, 4.0)", "(2.0, 1.0), (4.0, 3.0)"]
+
+def test_parse_numbered_tuple_loads_no_header():
+    txt = """1 (5.0, 6.0) (7.0, 8.0)\n2 (9.0, 10.0) (11.0, 12.0)\n"""
+    rows = parse_txt_loads(txt)
+    assert rows == ["(5.0, 6.0), (7.0, 8.0)", "(9.0, 10.0), (11.0, 12.0)"]
