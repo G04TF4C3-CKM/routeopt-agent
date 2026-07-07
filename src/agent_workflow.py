@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
+from .solver_types import SolverProgress
 
 from .result_analyzer import analyze_solution, explain_solution
 from .routing_engine import solve_routing_problem
@@ -57,14 +58,30 @@ def explain_solution_node(state: WorkflowState) -> WorkflowState:
     return state
 
 
-def run_routing_workflow(scenario_path: str | Path, time_limit: float = 12.0) -> WorkflowState:
-    """Run the capstone graph workflow: load → validate → optimize → analyze → explain."""
+def run_routing_workflow(
+    scenario_path: str | Path,
+    time_limit: float = 12.0,
+    progress_callback: Callable[[SolverProgress], None] | None = None,
+) -> WorkflowState:
+    """Run the capstone graph workflow: load → validate → optimize → analyze → explain.
+
+    Optional ``progress_callback`` is forwarded to the solver.
+    """
     state = WorkflowState(scenario_path=str(scenario_path), time_limit=time_limit)
+
+    def run_optimizer_node_with_cb(state: WorkflowState) -> WorkflowState:
+        state.result = solve_routing_problem(
+            state.scenario_path,
+            time_limit=state.time_limit,
+            progress_callback=progress_callback,
+        )
+        return state
+
     try:
         for node in (
             load_scenario_node,
             validate_scenario_node,
-            run_optimizer_node,
+            run_optimizer_node_with_cb,
             analyze_solution_node,
             explain_solution_node,
         ):

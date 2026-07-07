@@ -75,3 +75,34 @@ def format_route_time(value: float, data_unit: DataUnit) -> str:
     if data_unit == "Hours":
         return f"{value:.3f} hr"
     return f"{value:.3f} units"
+
+
+def format_route_time_for_display(value: float, data_unit: DataUnit) -> str:
+    """Return a route‑time string using a single display unit.
+
+    * ``Minutes`` – convert to hours and label ``hr``.
+    * ``Hours`` – keep hours, label ``hr``.
+    * ``Abstract units`` – keep raw value, label ``units``.
+    """
+    if data_unit == "Minutes":
+        hrs = value / 60.0
+        return f"{hrs:.3f} hr"
+    if data_unit == "Hours":
+        return f"{value:.3f} hr"
+    return f"{value:.3f} units"
+
+
+def caption_for_data_unit(data_unit: DataUnit) -> str:
+    """Return an explanatory caption for the selected data unit."""
+    if data_unit == "Minutes":
+        return (
+            "Data is minute‑scaled. Solver uses minutes internally; "
+            "displayed route-time metrics are shown in hours."
+        )
+    if data_unit == "Hours":
+        return (
+            "Data is hour‑scaled. Solver and displayed route‑time metrics use hours."
+        )
+    return (
+        "Data uses abstract route‑time units. Solver and displayed metrics use abstract units."
+    )

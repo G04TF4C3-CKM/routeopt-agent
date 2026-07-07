@@ -45,7 +45,7 @@ def _run_streamlit_app():
         normalize_load_rows_to_scenario_text,
         write_temp_scenario_file,
     )
-    from src.ui_utils import convert_time_limit_to_data_units, format_route_time
+    from src.ui_utils import convert_time_limit_to_data_units, format_route_time_for_display, caption_for_data_unit
 
     st.title("🚚 RouteOpt Agent – Interactive Demo")
     st.caption("Run the optimizer on bundled, uploaded, or manually entered scenarios.")
@@ -57,12 +57,12 @@ def _run_streamlit_app():
             "Input mode",
             ("Bundled sample", "Upload file", "Manual entry"),
         )
-        # New selectors for route-time units
         data_unit = st.selectbox(
             "Data route-time unit",
             ("Minutes", "Hours", "Abstract units"),
             index=1,
         )
+        st.caption(caption_for_data_unit(data_unit))
         input_unit = st.selectbox(
             "Enter driver time limit as",
             ("Same as data unit", "Hours", "Minutes"),
@@ -74,6 +74,9 @@ def _run_streamlit_app():
             value=12.0,
             step=0.5,
         )
+
+        # Convert user-entered limit to backend data unit
+        time_limit_backend = convert_time_limit_to_data_units(time_limit_input, input_unit, data_unit)
 
         scenario_path: Path | None = None
         temp_file: Path | None = None
@@ -137,8 +140,29 @@ def _run_streamlit_app():
             st.error("No valid scenario selected or uploaded.")
         else:
             try:
-                with st.spinner("Running optimizer…"):
-                    state = run_routing_workflow(str(scenario_path), time_limit=time_limit)
+                # Run optimizer with live progress updates
+                import time
+                status_placeholder = st.empty()
+                start_time = time.perf_counter()
+
+                def progress_cb(progress):
+                    elapsed = time.perf_counter() - start_time
+                    status = (
+                        f"Drivers: {progress.current_driver_count} | "
+                        f"Total: {format_route_time_for_display(progress.current_total_time, data_unit)} | "
+                        f"Max: {format_route_time_for_display(progress.current_max_driver_time, data_unit)} | "
+                        f"Elapsed: {elapsed:.2f}s"
+                    )
+                    status_placeholder.info(status)
+
+                state = run_routing_workflow(
+                    str(scenario_path),
+                    time_limit=time_limit_backend,
+                    progress_callback=progress_cb,
+                )
+                # Clear the live status placeholder after completion
+                status_placeholder.empty()
+
                 if state.errors:
                     st.error("\n".join(state.errors))
                 else:
@@ -149,12 +173,12 @@ def _run_streamlit_app():
                     saved = result.get("initial_driver_count", 0) - result.get("final_driver_count", 0)
                     col3.metric("Drivers saved", saved)
                     col4, col5, col6 = st.columns(3)
-                    col4.metric("Initial total time", f"{result.get('initial_total_time', 0):.3f}")
-                    col5.metric("Final total time", f"{result.get('final_total_time', 0):.3f}")
+                    col4.metric("Initial total time", format_route_time_for_display(result.get('initial_total_time', 0), data_unit))
+                    col5.metric("Final total time", format_route_time_for_display(result.get('final_total_time', 0), data_unit))
                     time_saved = result.get("initial_total_time", 0) - result.get("final_total_time", 0)
-                    col6.metric("Time saved", f"{time_saved:.3f}")
+                    col6.metric("Time saved", format_route_time_for_display(time_saved, data_unit))
                     col7, col8 = st.columns(2)
-                    col7.metric("Max driver time", f"{result.get('max_driver_time', 0):.3f}")
+                    col7.metric("Max driver time", format_route_time_for_display(result.get('max_driver_time', 0), data_unit))
                     feasibility = "Feasible" if result.get("feasible") else "Not feasible"
                     col8.metric("Feasibility", feasibility)
                     st.subheader("Explanation")
