@@ -30,7 +30,7 @@ def test_explicit_bellman_discharge_mode_matches_default():
 
 def test_unsupported_solver_mode_raises_value_error():
     with pytest.raises(ValueError, match="Unsupported solver_mode"):
-        solve_routing_problem(SAMPLE, time_limit=12.0, solver_mode="karp_mmc")
+        solve_routing_problem(SAMPLE, time_limit=12.0, solver_mode="not_a_solver")
 
 
 def test_progress_callback_none_preserves_behavior():
@@ -70,3 +70,11 @@ def test_max_iterations_limit_is_respected():
     result = solve_routing_problem(SAMPLE, time_limit=12.0, max_iterations=1)
 
     assert result["iterations"] <= 1
+
+
+def test_karp_mmc_solver_mode_is_accepted():
+    result = solve_routing_problem(SAMPLE, time_limit=12.0, solver_mode="karp_mmc")
+    assert isinstance(result, dict)
+    assert result["final_driver_count"] == 8
+    assert result["feasible"] is True
+    assert result["applied_paths"] == []

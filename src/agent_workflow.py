@@ -62,11 +62,15 @@ def run_routing_workflow(
     scenario_path: str | Path,
     time_limit: float = 12.0,
     progress_callback: Callable[[SolverProgress], None] | None = None,
+    solver_mode: str = "bellman_discharge",
 ) -> WorkflowState:
     """Run the capstone graph workflow: load → validate → optimize → analyze → explain.
 
     Optional ``progress_callback`` is forwarded to the solver.
+    ``solver_mode`` selects which solver implementation to use.
     """
+
+
     state = WorkflowState(scenario_path=str(scenario_path), time_limit=time_limit)
 
     def run_optimizer_node_with_cb(state: WorkflowState) -> WorkflowState:
@@ -74,6 +78,7 @@ def run_routing_workflow(
             state.scenario_path,
             time_limit=state.time_limit,
             progress_callback=progress_callback,
+            solver_mode=solver_mode,
         )
         return state
 

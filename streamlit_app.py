@@ -57,6 +57,15 @@ def _run_streamlit_app():
             "Input mode",
             ("Bundled sample", "Upload file", "Manual entry"),
         )
+        # Solver mode selector
+        solver_choice = st.radio(
+            "Solver mode",
+            ("Bellman discharge", "Experimental Karp/MMC"),
+            index=0,
+            help="Bellman discharge is the stable default. Karp/MMC is experimental and may fail on some scenarios.",
+        )
+        solver_mode = "bellman_discharge" if solver_choice == "Bellman discharge" else "karp_mmc"
+        st.caption("Bellman discharge is the stable default. Karp/MMC is experimental and may fail on some scenarios.")
         data_unit = st.selectbox(
             "Data route-time unit",
             ("Minutes", "Hours", "Abstract units"),
@@ -158,6 +167,7 @@ def _run_streamlit_app():
                 state = run_routing_workflow(
                     str(scenario_path),
                     time_limit=time_limit_backend,
+                    solver_mode=solver_mode,
                     progress_callback=progress_cb,
                 )
                 # Clear the live status placeholder after completion
@@ -183,6 +193,16 @@ def _run_streamlit_app():
                     col8.metric("Feasibility", feasibility)
                     st.subheader("Explanation")
                     st.write(state.explanation)
+                    st.subheader("Agent Trace")
+                    trace_items = [
+                        "Scenario parsed",
+                        "Constraint interpreted",
+                        "Solver selected",
+                        "Optimization tool executed",
+                        "Feasibility evaluated",
+                        "Recommendation generated",
+                    ]
+                    st.markdown("\n".join([f"- {item}" for item in trace_items]))
                     st.subheader("Final routes (driver → stops)")
                     routes = result.get("routes", {})
                     if routes:
@@ -201,6 +221,8 @@ def _run_streamlit_app():
                         ax.set_ylabel("Number of stops")
                         ax.set_title("Stops per driver")
                         st.pyplot(fig)
+            except Exception as e:
+                st.error(str(e))
             finally:
                 if temp_file is not None and temp_file.exists():
                     try:
