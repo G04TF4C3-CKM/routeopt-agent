@@ -70,3 +70,12 @@ tests/                         backend tests
 ## Notes
 
 The current solver starts with one driver per load and repeatedly applies feasible residual-graph discharges to combine routes while respecting a driver time limit. The legacy optimization code is intentionally isolated in `src/legacy_vrp.py`; new app and agent layers should call `solve_routing_problem()` rather than reaching into legacy internals.
+
+## Solver API
+
+The stable public backend entry point is `solve_routing_problem()` in `src/routing_engine.py`.
+
+The current production solver mode is `bellman_discharge`, which wraps the legacy residual-graph / Bellman-Ford discharge routine. The API also exposes a `progress_callback` hook that can receive `SolverProgress` snapshots after successful discharge iterations. This prepares the app for live progress reporting on larger scenarios.
+
+Experimental Karp/MMC residual search is planned as future work, but is not active in the production path yet.
+

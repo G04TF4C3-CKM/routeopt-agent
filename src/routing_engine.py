@@ -4,11 +4,12 @@ from __future__ import annotations
 import contextlib
 import io
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from . import legacy_vrp as vrp
 from .safety import assert_local_readable_file
 from .scenario_loader import validate_scenario
+from .solver_types import SolverProgress
 
 
 def _driver_total_time(drivers: vrp.Drivers) -> float:
@@ -30,6 +31,9 @@ def solve_routing_problem(
     strength: str = "strong",
     residual_type: str = "mod",
     suppress_legacy_output: bool = True,
+    *,
+    solver_mode: str = "bellman_discharge",
+    progress_callback: Callable[[SolverProgress], None] | None = None,
 ) -> Dict[str, Any]:
     """Solve a local vehicle-routing scenario using the legacy optimizer.
 
@@ -38,7 +42,9 @@ def solve_routing_problem(
     """
     path = assert_local_readable_file(file_path)
     validation = validate_scenario(path)
-
+    # Validate solver mode (only bellman_discharge supported)
+    if solver_mode != "bellman_discharge":
+        raise ValueError(f"Unsupported solver_mode: {solver_mode}")
     def _run() -> Dict[str, Any]:
         graph = vrp.create_graph_from_file(str(path))
         drivers = vrp.Drivers(graph, time_limit=time_limit, res_type=residual_type, wp=False)
@@ -62,6 +68,17 @@ def solve_routing_problem(
             )
             if min_path is not None:
                 applied_paths.append([int(x) for x in min_path])
+                # Progress callback (if provided)
+                if progress_callback is not None:
+                    progress = SolverProgress(
+                        iteration=iterations,
+                        current_driver_count=len(drivers.labels),
+                        current_total_time=_driver_total_time(drivers),
+                        current_max_driver_time=float(max(drivers.time.values())) if drivers.time else 0.0,
+                        applied_path=[int(x) for x in min_path],
+                        message="discharge applied",
+                    )
+                    progress_callback(progress)
 
         final_total_time = _driver_total_time(drivers)
         max_driver_time = float(max(drivers.time.values())) if drivers.time else 0.0
