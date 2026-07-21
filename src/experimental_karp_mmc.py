@@ -301,17 +301,18 @@ def karp_mmc_mod(
                     drivers_dict_2[v] = pot_drivers_v_2
                     paths_2[v] = paths_2[u] + [v]
                     updated = True
-        if k % 6 == 0 and not updated:
-            relaxed = True
-    # Negative‑mean detection on source_2
-    min_mean: Optional[float] = None
-    cycle: Optional[List[int]] = None
-    if source_2 in paths_2 and len(paths_2[source_2]) > 1:
-        total_cost = d_2[k][source_2]
-        if total_cost < 0:
-            min_mean = total_cost / (len(paths_2[source_2]) - 1)
-            cycle = paths_2[source_2]
-    return min_mean, cycle
+        if k % 6 == 0:
+            if paths_1.get(0):
+                l = len(paths_1[0]) - 1
+                return d_1[l][0] / l, paths_1[0]
+
+            if updated:
+                updated = False
+            else:
+                relaxed = True
+    # Negative-cycle recovery through source_2 (vertex 0) is deferred to a
+    # separate regression-driven task. Return (None, None) when no firing path was found.
+    return None, None
 
 
 def discharge_mmc(
