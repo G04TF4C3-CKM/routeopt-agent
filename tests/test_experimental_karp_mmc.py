@@ -4,8 +4,11 @@ These tests verify that the module can be imported and that a few core
 utilities behave as expected on tiny synthetic data.
 """
 
+from pathlib import Path
+
 import networkx as nx
 
+from src import legacy_vrp as vr
 from src.experimental_karp_mmc import (
     path_rebuild,
     cycle_rebuild,
@@ -58,3 +61,21 @@ def test_discharge_mmc_rejects_unsupported_version_before_touching_driver_state(
 
     with pytest.raises(NotImplementedError):
         discharge_mmc(DummyDrivers(), version=999)
+
+
+def test_karp_first_firing_path_reduces_drivers():
+    fixture_path = Path(__file__).parent / "fixtures" / "loads_5_8_hiring_firing_path.txt"
+    graph = vr.create_graph_from_file(str(fixture_path))
+    drivers = vr.Drivers(graph, time_limit=8.0, res_type="mod", wp=False)
+
+    assert len(drivers.labels) == 5
+
+    applied = discharge_mmc(drivers, wp=False, version=1)
+
+    assert applied is not None
+    assert applied[0] == -1
+    assert applied[-1] == 0
+    assert len(drivers.labels) == 4
+    assert drivers.hot_drivers == {}
+    assert drivers.max_time <= 8.0
+

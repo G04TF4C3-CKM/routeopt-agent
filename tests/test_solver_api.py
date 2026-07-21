@@ -75,6 +75,8 @@ def test_max_iterations_limit_is_respected():
 def test_karp_mmc_solver_mode_is_accepted():
     result = solve_routing_problem(SAMPLE, time_limit=12.0, solver_mode="karp_mmc")
     assert isinstance(result, dict)
-    assert result["final_driver_count"] == 8
+    assert result["initial_driver_count"] == 8
+    assert result["final_driver_count"] == 3
     assert result["feasible"] is True
-    assert result["applied_paths"] == []
+    assert len(result["applied_paths"]) > 0
+    assert result["max_driver_time"] <= 12.0
