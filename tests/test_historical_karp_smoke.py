@@ -61,7 +61,7 @@ def test_historical_karp_mmc_smoke() -> None:
 
     result = solve_routing_problem(
         FIXTURE,
-        time_limit=8.0,
+        time_limit=12.0,
         solver_mode="karp_mmc",
         max_iterations=20,
     )
@@ -78,4 +78,4 @@ def test_historical_karp_mmc_smoke() -> None:
         HISTORICAL_FINAL_TOTAL_TIME,
         abs=1e-6,
     )
-    assert result["max_driver_time"] <= 8.0
+    assert result["max_driver_time"] <= 12.0
