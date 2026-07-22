@@ -86,22 +86,41 @@ def solve_routing_problem(
         else:
             # experimental Karp/MMC mode
             while iterations < max_iterations:
-                iterations += 1
-                cycle = karp_discharge(drivers, wp=False, version=1)
-                if cycle is None:
+                firing_path = karp_discharge(drivers, wp=False, version=1)
+                if firing_path is None:
                     break
-                applied_paths.append([int(x) for x in cycle])
-                last_cycle = cycle
+                applied_paths.append([int(x) for x in firing_path])
+                last_cycle = firing_path
+                iterations += 1
                 if progress_callback is not None:
                     progress = SolverProgress(
                         iteration=iterations,
                         current_driver_count=len(drivers.labels),
                         current_total_time=_driver_total_time(drivers),
                         current_max_driver_time=float(max(drivers.time.values())) if drivers.time else 0.0,
-                        applied_path=[int(x) for x in cycle],
-                        message="karp/mmc cycle applied",
+                        applied_path=[int(x) for x in firing_path],
+                        message="karp/mmc firing path applied",
                     )
                     progress_callback(progress)
+
+            # Apply at most one source-rooted version-2 augmentation: repeated
+            # discharge can yield unresolved compound walks with embedded central cycles.
+            if iterations < max_iterations:
+                source_rooted_cycle = karp_discharge(drivers, wp=False, version=2)
+                if source_rooted_cycle is not None:
+                    applied_paths.append([int(x) for x in source_rooted_cycle])
+                    last_cycle = source_rooted_cycle
+                    iterations += 1
+                    if progress_callback is not None:
+                        progress = SolverProgress(
+                            iteration=iterations,
+                            current_driver_count=len(drivers.labels),
+                            current_total_time=_driver_total_time(drivers),
+                            current_max_driver_time=float(max(drivers.time.values())) if drivers.time else 0.0,
+                            applied_path=[int(x) for x in source_rooted_cycle],
+                            message="karp/mmc source-rooted cycle applied",
+                        )
+                        progress_callback(progress)
 
         final_total_time = _driver_total_time(drivers)
         max_driver_time = float(max(drivers.time.values())) if drivers.time else 0.0
@@ -113,7 +132,7 @@ def solve_routing_problem(
             "iterations": iterations,
             "terminated_by_iteration_limit": iterations >= max_iterations and (
                 (solver_mode == "bellman_discharge" and min_path is not None) or
-                (solver_mode == "karp_mmc" and last_cycle is not None)
+                solver_mode == "karp_mmc"
             ),
             "negative_cycle": last_cycle,
             "initial_driver_count": initial_driver_count,

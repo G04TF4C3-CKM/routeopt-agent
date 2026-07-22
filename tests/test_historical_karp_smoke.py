@@ -49,13 +49,6 @@ def test_historical_fixture_is_present_and_has_five_loads() -> None:
     assert all(line.count("(") == 2 and line.count(")") == 2 for line in lines)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "The production Karp/MMC port does not yet include the notebook's "
-        "firing-path returns and multi-label hiring/reconnection search."
-    ),
-)
 def test_historical_karp_mmc_smoke() -> None:
     """Reproduce the complete historical Karp/MMC solution on the diagnostic case."""
 
