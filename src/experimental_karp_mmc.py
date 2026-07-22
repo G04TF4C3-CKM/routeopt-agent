@@ -452,21 +452,20 @@ def karp_mmc_mod_hire(
     return None, None
 
 
-def _apply_hiring_cycle(drivers: vr.Drivers, cycle: List[int]) -> None:
-    """Apply a validated hiring/reconnection cycle in historical order."""
+def _apply_source_rooted_cycle(drivers: vr.Drivers, cycle: List[int]) -> None:
+    """Apply a closed source-rooted version-2 residual cycle.
+
+    This includes both source-side shift cycles and cross-boundary cycles.
+    """
     if len(cycle) < 3 or cycle[0] != 0 or cycle[-1] != 0:
         raise ValueError("Version-2 augmentation must be a cycle starting and ending at 0")
-    if -1 not in cycle[1:-1]:
-        raise ValueError("Version-2 augmentation must contain -1 in its interior")
 
     ebunch_del, ebunch_add, aug_list = vr.aug_path(cycle, drivers.H)
     if not aug_list:
         raise ValueError("Version-2 augmentation produced an empty augmentation list")
-    if aug_list[0][1] % 2 != 1:
-        raise ValueError("Version-2 augmentation is not a hiring augmentation")
     if len(ebunch_add) != len(ebunch_del):
         raise ValueError(
-            "Version-2 hiring augmentation requires equal addition and deletion queues"
+            "Version-2 source-rooted cycle requires equal addition and deletion queues"
         )
     if len(aug_list) != len(ebunch_add) + len(ebunch_del):
         raise ValueError(
@@ -483,9 +482,13 @@ def _apply_hiring_cycle(drivers: vr.Drivers, cycle: List[int]) -> None:
 
     additions = deque(ebunch_add)
     deletions = deque(ebunch_del)
+    first_operation_is_add = aug_list[0][1] % 2 == 1
     mutation_count = len(aug_list)
     for mutation_position in range(1, mutation_count + 1):
-        if mutation_position % 2 == 1:
+        operation_is_add = (
+            mutation_position % 2 == 1
+        ) == first_operation_is_add
+        if operation_is_add:
             u, v, time, weight = additions.popleft()
             drivers.G.add_edge(u, v, time=time, weight=weight)
         else:
@@ -521,7 +524,7 @@ def discharge_mmc(
         return None
     if min_mean is not None and min_mean < 0:
         if version == 2:
-            _apply_hiring_cycle(drivers, cycle)
+            _apply_source_rooted_cycle(drivers, cycle)
             return cycle
         augment = vr.aug_path(cycle, drivers.H)
         ebunch_del, ebunch_add, _ = augment
