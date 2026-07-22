@@ -1,6 +1,6 @@
 # Historical Karp/MMC regression fixture
 
-`loads_5_8_hiring_firing_path.txt` is the five-load, eight-hour scenario used in the original exploratory notebooks, especially:
+`loads_5_8_hiring_firing_path.txt` is the five-load, twelve-hour scenario used in the original exploratory notebooks, especially:
 
 - `KarpsMeanMinCycle_2.ipynb`
 - `DoubleCheck_Optimality.ipynb`
