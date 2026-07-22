@@ -79,3 +79,44 @@ def test_karp_first_firing_path_reduces_drivers():
     assert drivers.hot_drivers == {}
     assert drivers.max_time <= 8.0
 
+
+def test_karp_reconnection_cycle_reduces_time_at_two_drivers():
+    import pytest
+
+    fixture_path = Path(__file__).parent / "fixtures" / "loads_5_8_hiring_firing_path.txt"
+    graph = vr.create_graph_from_file(str(fixture_path))
+    drivers = vr.Drivers(graph, time_limit=12.0, res_type="mod", wp=False)
+
+    firing_paths = [
+        [-1, 10, 1, 0],
+        [-1, 2, 7, 0],
+        [-1, 4, 5, 0],
+    ]
+    for path in firing_paths:
+        deletion_edges, addition_edges, _ = vr.aug_path(path, drivers.H)
+        drivers.G.remove_edges_from(deletion_edges)
+        for u, v, time, weight in addition_edges:
+            drivers.G.add_edge(u, v, time=time, weight=weight)
+        drivers.update()
+
+    assert len(drivers.labels) == 2
+    assert drivers.hot_drivers == {}
+    assert drivers.max_time <= 12.0
+    assert sum(drivers.time.values()) == pytest.approx(
+        21.78032107205433,
+        abs=1e-6,
+    )
+
+    cycle = discharge_mmc(drivers, wp=False, version=2)
+
+    assert cycle is not None
+    assert cycle[0] == 0
+    assert cycle[-1] == 0
+    assert -1 in cycle[1:-1]
+    assert len(drivers.labels) == 2
+    assert drivers.hot_drivers == {}
+    assert drivers.max_time <= 12.0
+    assert sum(drivers.time.values()) == pytest.approx(
+        21.677714866639274,
+        abs=1e-6,
+    )

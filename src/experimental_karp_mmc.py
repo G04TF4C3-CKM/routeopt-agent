@@ -315,6 +315,186 @@ def karp_mmc_mod(
     return None, None
 
 
+def karp_mmc_mod_hire(
+    drivers_initial: vr.Drivers,
+    que: List[set],
+    wp: bool = False,
+) -> Tuple[Optional[float], Optional[List[int]]]:
+    """Search for a feasible negative reconnection cycle through vertex 0.
+
+    Unlike :func:`karp_mmc_mod`, this search retains every feasible path and
+    its candidate-specific ``Drivers`` state.  The single-label searches are
+    retained only because their successful relaxations drive the historical
+    residual-edge requeue behavior.
+    """
+    H = drivers_initial.H
+    n = len(H.nodes)
+    source_1 = -1
+    source_2 = 0
+
+    d_1: Dict[int, Dict[int, float]] = {
+        0: {v: float("inf") for v in H.nodes}
+    }
+    d_2: Dict[int, Dict[int, float]] = {
+        0: {v: float("inf") for v in H.nodes}
+    }
+    d_1[0][source_1] = 0.0
+    d_2[0][source_2] = 0.0
+
+    d_3: Dict[int, List[Tuple[List[int], vr.Drivers, float]]] = {
+        v: [] for v in H.nodes
+    }
+    d_3[source_2].append(([source_2], drivers_initial, 0.0))
+
+    drivers_dict_1: Dict[int, vr.Drivers] = {source_1: drivers_initial}
+    drivers_dict_2: Dict[int, vr.Drivers] = {source_2: drivers_initial}
+    paths_1: Dict[int, List[int]] = {source_1: [source_1]}
+    paths_2: Dict[int, List[int]] = {source_2: [source_2]}
+
+    updated = False
+    relaxed = False
+    k = 0
+    while not relaxed and k < 3 * n:
+        k += 1
+        d_1[k] = {}
+        d_2[k] = {}
+        ebunch_idx = (k - 1) % 6
+        ebunch = deque(que[ebunch_idx])
+
+        while ebunch:
+            u, v, cost = ebunch.popleft()
+
+            if u in paths_1 and paths_1[u]:
+                prev_k_1 = len(paths_1[u]) - 1
+                prev_cost_1 = d_1[prev_k_1][u]
+            else:
+                prev_k_1 = None
+                prev_cost_1 = None
+
+            if u in paths_2 and paths_2[u]:
+                prev_k_2 = len(paths_2[u]) - 1
+                prev_cost_2 = d_2[prev_k_2][u]
+            else:
+                prev_k_2 = None
+                prev_cost_2 = None
+
+            feasible_1 = None
+            feasible_2 = None
+            feasible_3 = None
+
+            for allpath, prev_drivers, prev_cost_3 in d_3[u]:
+                if len(allpath) == 1:
+                    pot_drivers_v_3, _ = vr.feasible_check(
+                        u, v, allpath, prev_drivers, wp=wp
+                    )
+                elif len(allpath) > k // 3 - 1:
+                    if v == allpath[-2]:
+                        continue
+                    pot_drivers_v_3, _ = vr.feasible_check(
+                        u, v, allpath, prev_drivers, wp=wp
+                    )
+                else:
+                    continue
+
+                if pot_drivers_v_3.hot_drivers == {}:
+                    candidate_cost = prev_cost_3 + cost
+                    candidate_path = allpath + [v]
+                    d_3[v].append(
+                        (candidate_path, pot_drivers_v_3, candidate_cost)
+                    )
+                    feasible_3 = True
+                    if len(allpath) != 1 and v == source_2 and candidate_cost < 0:
+                        return candidate_cost / len(allpath), candidate_path
+
+            if prev_k_1 is not None:
+                i = 0
+                while d_1[prev_k_1 + 1 - i].get(v) is None:
+                    i += 1
+                d_1[prev_k_1 + 1][v] = d_1[prev_k_1 + 1 - i][v]
+                if prev_cost_1 + cost < d_1[prev_k_1 + 1][v]:
+                    pot_drivers_v_1, _ = vr.feasible_check(
+                        u, v, paths_1[u], drivers_dict_1[u], wp=wp
+                    )
+                    feasible_1 = pot_drivers_v_1.hot_drivers == {}
+
+            if prev_k_2 is not None:
+                i = 0
+                while d_2[prev_k_2 + 1 - i].get(v) is None:
+                    i += 1
+                d_2[prev_k_2 + 1][v] = d_2[prev_k_2 + 1 - i][v]
+                if prev_cost_2 + cost < d_2[prev_k_2 + 1][v]:
+                    pot_drivers_v_2, _ = vr.feasible_check(
+                        u, v, paths_2[u], drivers_dict_2[u], wp=wp
+                    )
+                    feasible_2 = pot_drivers_v_2.hot_drivers == {}
+
+            if feasible_1 or feasible_2:
+                add_to_que(que, (u, v, cost), ebunch_idx)
+                if feasible_1:
+                    d_1[prev_k_1 + 1][v] = prev_cost_1 + cost
+                    drivers_dict_1[v] = pot_drivers_v_1
+                    paths_1[v] = paths_1[u] + [v]
+                    updated = True
+                if feasible_2:
+                    d_2[prev_k_2 + 1][v] = prev_cost_2 + cost
+                    drivers_dict_2[v] = pot_drivers_v_2
+                    paths_2[v] = paths_2[u] + [v]
+                    updated = True
+            elif feasible_3:
+                updated = True
+
+        if k % 6 == 0:
+            if updated:
+                updated = False
+            else:
+                relaxed = True
+
+    return None, None
+
+
+def _apply_hiring_cycle(drivers: vr.Drivers, cycle: List[int]) -> None:
+    """Apply a validated hiring/reconnection cycle in historical order."""
+    if len(cycle) < 3 or cycle[0] != 0 or cycle[-1] != 0:
+        raise ValueError("Version-2 augmentation must be a cycle starting and ending at 0")
+    if -1 not in cycle[1:-1]:
+        raise ValueError("Version-2 augmentation must contain -1 in its interior")
+
+    ebunch_del, ebunch_add, aug_list = vr.aug_path(cycle, drivers.H)
+    if not aug_list:
+        raise ValueError("Version-2 augmentation produced an empty augmentation list")
+    if aug_list[0][1] % 2 != 1:
+        raise ValueError("Version-2 augmentation is not a hiring augmentation")
+    if len(ebunch_add) != len(ebunch_del):
+        raise ValueError(
+            "Version-2 hiring augmentation requires equal addition and deletion queues"
+        )
+    if len(aug_list) != len(ebunch_add) + len(ebunch_del):
+        raise ValueError(
+            "Version-2 augmentation trace is incompatible with its mutation queues"
+        )
+
+    missing_deletions = [
+        (u, v) for u, v in ebunch_del if not drivers.G.has_edge(u, v)
+    ]
+    if missing_deletions:
+        raise ValueError(
+            f"Version-2 augmentation references missing deletion edges: {missing_deletions}"
+        )
+
+    additions = deque(ebunch_add)
+    deletions = deque(ebunch_del)
+    mutation_count = len(aug_list)
+    for mutation_position in range(1, mutation_count + 1):
+        if mutation_position % 2 == 1:
+            u, v, time, weight = additions.popleft()
+            drivers.G.add_edge(u, v, time=time, weight=weight)
+        else:
+            u, v = deletions.popleft()
+            drivers.G.remove_edge(u, v)
+
+    drivers.update()
+
+
 def discharge_mmc(
     drivers: vr.Drivers,
     wp: bool = False,
@@ -325,18 +505,24 @@ def discharge_mmc(
     Returns the applied cycle if a negative‑mean cycle is found and fired, or
     ``None`` otherwise.
     """
-    if version is not None and version != 1:
+    if version is not None and version not in (1, 2):
         raise NotImplementedError(
             f"Experimental MMC version {version} is not implemented"
         )
     set_1, set_2, set_3, set_4, set_5, set_6 = sort_edges(drivers.H, wp=wp)
     que = [set_1, set_6, set_2, set_4, set_3, set_5]
-    min_mean, cycle = karp_mmc_mod(drivers, que, wp=wp)
+    if version == 2:
+        min_mean, cycle = karp_mmc_mod_hire(drivers, que, wp=wp)
+    else:
+        min_mean, cycle = karp_mmc_mod(drivers, que, wp=wp)
     if cycle is None:
         if wp:
             print("No MMC cycle found – discharge aborted.")
         return None
     if min_mean is not None and min_mean < 0:
+        if version == 2:
+            _apply_hiring_cycle(drivers, cycle)
+            return cycle
         augment = vr.aug_path(cycle, drivers.H)
         ebunch_del, ebunch_add, _ = augment
         for edge in ebunch_del:
