@@ -66,6 +66,35 @@ def test_progress_callback_is_invoked():
     assert calls[0].current_max_driver_time > 0
 
 
+@pytest.mark.parametrize("solver_mode", ["bellman_discharge", "karp_mmc"])
+def test_progress_events_match_applied_paths_and_final_result(solver_mode):
+    events: list[SolverProgress] = []
+
+    result = solve_routing_problem(
+        SAMPLE,
+        time_limit=12.0,
+        max_iterations=10,
+        solver_mode=solver_mode,
+        progress_callback=events.append,
+    )
+
+    assert events
+    assert all(isinstance(event, SolverProgress) for event in events)
+    assert len({id(event) for event in events}) == len(events)
+    assert [event.iteration for event in events] == sorted(
+        event.iteration for event in events
+    )
+    assert [event.applied_path for event in events] == result["applied_paths"]
+    assert len(events) == len(result["applied_paths"])
+
+    final_event = events[-1]
+    assert final_event.current_driver_count == result["final_driver_count"]
+    assert final_event.current_total_time == pytest.approx(result["final_total_time"])
+    assert final_event.current_max_driver_time == pytest.approx(
+        result["max_driver_time"]
+    )
+
+
 def test_max_iterations_limit_is_respected():
     result = solve_routing_problem(SAMPLE, time_limit=12.0, max_iterations=1)
 
