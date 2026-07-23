@@ -1,5 +1,5 @@
-# Streamlit demo for RouteOpt Agent
-"""A minimal Streamlit front‑end that wraps the existing RouteOpt Agent workflow.
+# Interactive Streamlit workbench for RouteOpt Agent
+"""An interactive constrained-routing workbench for the RouteOpt Agent workflow.
 
 The UI lets the user:
 1. Pick one of the bundled scenario files under `data/`.
@@ -47,8 +47,17 @@ def _run_streamlit_app():
     )
     from src.ui_utils import convert_time_limit_to_data_units, format_route_time_for_display, caption_for_data_unit
 
-    st.title("🚚 RouteOpt Agent – Interactive Demo")
-    st.caption("Run the optimizer on bundled, uploaded, or manually entered scenarios.")
+    st.set_page_config(
+        page_title="RouteOpt Agent",
+        page_icon="🚚",
+        layout="wide",
+    )
+
+    st.title("🚚 RouteOpt Agent")
+    st.caption(
+        "Explore constrained-routing scenarios, compare residual-graph solvers, "
+        "and inspect feasibility and route-time results."
+    )
 
     # Sidebar – mode selector and common parameters
     with st.sidebar:
