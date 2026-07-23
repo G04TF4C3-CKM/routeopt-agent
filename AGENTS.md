@@ -139,7 +139,7 @@ After editing, report:
 
 ## Command execution
 
-The Antigravity command runner may fail with errors such as:
+The coding-agent command runner or filesystem sandbox may fail with errors such as:
 
 ```text
 CORTEX_STEP_TYPE_RUN_COMMAND
@@ -330,7 +330,7 @@ refactor/solver-result-contract
 ui/solver-comparison
 ```
 
-Do not commit temporary files such as `_agy_task.patch`.
+Do not commit temporary agent patch files.
 
 The human operator performs final review, commit, push, and merge unless explicitly delegated.
 
@@ -369,11 +369,10 @@ Preserve the useful presentation structure:
 
 - `README.md`
 - `docs/architecture.md`
-- `docs/video_script.md`
 - project write-up materials
 - the Streamlit interface
 
-Course-specific names may be changed later, but renaming should be performed separately from algorithm repair.
+Presentation and naming changes should be performed separately from algorithm repair.
 
 Documentation should distinguish:
 

@@ -1,4 +1,4 @@
-"""Minimal agent-style workflow for the routing capstone.
+"""Minimal agent-style workflow for the RouteOpt Agent workbench.
 
 This intentionally keeps the backend deterministic. A later UI/LLM layer can call this
 workflow and narrate its output, but the solver itself remains testable and local-only.
@@ -64,7 +64,7 @@ def run_routing_workflow(
     progress_callback: Callable[[SolverProgress], None] | None = None,
     solver_mode: str = "bellman_discharge",
 ) -> WorkflowState:
-    """Run the capstone graph workflow: load → validate → optimize → analyze → explain.
+    """Run the routing workflow: load → validate → optimize → analyze → explain.
 
     Optional ``progress_callback`` is forwarded to the solver.
     ``solver_mode`` selects which solver implementation to use.

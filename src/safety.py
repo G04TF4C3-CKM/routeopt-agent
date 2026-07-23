@@ -1,4 +1,4 @@
-"""Local safety checks for the capstone backend."""
+"""Local safety checks for the RouteOpt Agent workbench."""
 from __future__ import annotations
 
 from pathlib import Path
