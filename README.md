@@ -1,81 +1,169 @@
 # RouteOpt Agent
 
-RouteOpt Agent is a Kaggle 5-Day Vibe Coding capstone backend that wraps a legacy vehicle-routing optimization experiment in a clean, agent-style workflow.
+RouteOpt Agent is a personal algorithm-engineering workbench for constrained
+vehicle routing, residual-graph augmentation experiments, solver comparison,
+diagnostics, and future agent-assisted analysis.
 
-## Problem
-Vehicle-routing optimization is operationally valuable but hard for non-experts to run and interpret. Dispatchers and analysts need tools that validate routing scenarios, run optimization logic, and explain the result in business language.
+The project preserves a working Bellman-Ford baseline while developing and
+testing an experimental Karp/minimum-mean-cycle (MMC) alternative. It provides
+reproducible routing scenarios, a shared solver API, feasibility and route-time
+validation, a command-line interface, and an interactive Streamlit interface.
+The algorithms remain research-oriented: experimental results are reported as
+such, and the project does not claim global optimality or production readiness.
 
-## Solution
-This project takes a custom residual-graph VRP optimizer and exposes it through a minimal workflow:
+## Current capabilities
 
-```text
-Load scenario -> Validate scenario -> Run optimizer -> Analyze result -> Explain result
-```
+- Load and validate reproducible pickup-and-dropoff routing scenarios.
+- Run the stable `bellman_discharge` baseline, which applies feasible
+  Bellman-Ford firing-path discharges to combine driver routes.
+- Run the experimental `karp_mmc` path for comparison and diagnostics.
+- Compare initial and final driver counts, route times, feasibility, applied
+  augmentations, iteration counts, and termination status.
+- Observe successful augmentations through the `SolverProgress` callback.
+- Use the same deterministic workflow from the CLI and Streamlit interfaces.
+- Keep solver execution local and deterministic so a future agentic layer can
+  explain results, ask clarifying questions, and support comparative analysis.
 
-## Course concepts demonstrated
+## Solver maturity
 
-- **Agent / workflow design:** the backend uses explicit workflow nodes and shared state in `src/agent_workflow.py`.
-- **Security features:** inputs are local-only, URLs are rejected, no credentials are used, and the backend has no external side effects.
-- **Spec-driven development:** project behavior and acceptance scenarios live in `specs/`.
-- **Deployability path:** the current backend runs as a CLI and is ready to be wrapped in Streamlit, Gradio, or another lightweight app.
+### Bellman-Ford discharge
 
-## Setup
+`bellman_discharge` is the stable baseline. It wraps the preserved residual-graph
+and Bellman-Ford discharge routine in `src/legacy_vrp.py` and repeatedly applies
+feasible firing paths while respecting the configured driver time limit.
+
+### Experimental Karp/MMC
+
+`karp_mmc` is an experimental extraction of the historical Karp/MMC work. In
+the validated public workflow, it exhausts version-1 firing-path discharges and
+then attempts at most one source-rooted version-2 residual-cycle augmentation
+per solver call.
+
+This path does not yet reproduce every branch explored in the historical
+notebooks. Central-cycle decomposition, sink-rooted search, robust
+compound-walk handling, and broader pivot-selection logic remain backend
+research tasks.
+
+## Installation
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-## Run the sample scenario
+## Input format
+
+CLI scenario files contain one pickup-and-dropoff pair per line:
+
+```text
+(pickup_x, pickup_y), (dropoff_x, dropoff_y)
+```
+
+For example:
+
+```text
+(1.0, 2.0), (3.0, 4.0)
+(2.0, 1.0), (4.0, 3.0)
+```
+
+The Streamlit interface also accepts manual input, numbered tuple rows, and CSV
+uploads with this header:
+
+```text
+pickup_x,pickup_y,dropoff_x,dropoff_y
+```
+
+## CLI usage
+
+Run the stable baseline on a bundled scenario:
 
 ```bash
 python app.py data/sample_8_loads.txt --time-limit 12
 ```
 
-## Streamlit Demo
+Use `--json` to print the complete normalized result:
+
+```bash
+python app.py data/sample_8_loads.txt --time-limit 12 --json
+```
+
+## Streamlit usage
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-The Streamlit app provides a simple UI to select a bundled scenario, set the driver time limit, and view the optimization results (driver counts, route times, feasibility, and a basic route‑length chart).
+The interface supports bundled scenarios, local TXT or CSV uploads, and manual
+entry. Users can choose the stable Bellman-Ford baseline or the experimental
+Karp/MMC path, configure route-time units and the driver limit, monitor progress,
+and inspect feasibility, route-time metrics, final routes, and the Agent Trace.
 
-Expected summary:
+## Public solver API
 
-```text
-The optimizer reduced the plan from 8 drivers to 3 drivers...
+The shared backend entry point is `solve_routing_problem()` in
+`src/routing_engine.py`:
+
+```python
+from src.routing_engine import solve_routing_problem
+
+result = solve_routing_problem(
+    "data/sample_8_loads.txt",
+    time_limit=12.0,
+    solver_mode="bellman_discharge",
+)
 ```
 
-## Run tests
+Supported solver modes are:
+
+- `bellman_discharge` — stable default;
+- `karp_mmc` — experimental Karp/MMC discharge.
+
+The optional `progress_callback` receives `SolverProgress` snapshots after
+successful augmentations. Results include initial and final routes, driver
+counts, total and maximum route times, feasibility, applied paths, iteration
+information, and validation details.
+
+## Safety and validation
+
+- Remote URLs are rejected; solver inputs must be readable local files.
+- Scenario rows and load counts are validated before solver execution.
+- Streamlit uploads are size-limited and parsed before a temporary local
+  scenario is created.
+- The application does not require credentials or external services.
+- Solver execution has no email, database, upload, or cloud side effects.
+
+## Tests
 
 ```bash
 pytest -q
 ```
 
+The suite covers scenario parsing, custom input handling, solver dispatch,
+workflow behavior, Streamlit helpers, and historical Karp/MMC regression cases.
+
 ## Repository structure
 
 ```text
-app.py                         CLI entry point
-src/agent_workflow.py           workflow nodes and state
-src/routing_engine.py           stable wrapper around the legacy optimizer
-src/legacy_vrp.py               patched legacy optimization experiment
-src/scenario_loader.py          input parsing and validation
-src/result_analyzer.py          metrics and natural-language summary
-data/                          sample routing scenarios
-specs/                         capstone spec and BDD scenarios
-tests/                         backend tests
+app.py                           CLI entry point
+streamlit_app.py                 interactive workbench
+src/agent_workflow.py            deterministic workflow orchestration
+src/routing_engine.py            shared solver dispatch and normalized results
+src/legacy_vrp.py                preserved Bellman-Ford baseline internals
+src/experimental_karp_mmc.py     experimental Karp/MMC extraction
+src/solver_types.py              shared progress structures
+src/scenario_loader.py           scenario parsing and validation
+src/custom_input.py              Streamlit TXT/CSV/manual input parsing
+src/result_analyzer.py           metrics and user-facing explanations
+data/                            bundled routing scenarios
+docs/                            architecture and project documentation
+specs/                           behavioral specifications
+tests/                           unit and regression tests
 ```
 
-## Notes
+## Direction
 
-The current solver starts with one driver per load and repeatedly applies feasible residual-graph discharges to combine routes while respecting a driver time limit. The legacy optimization code is intentionally isolated in `src/legacy_vrp.py`; new app and agent layers should call `solve_routing_problem()` rather than reaching into legacy internals.
-
-## Solver API
-
-The stable public backend entry point is `solve_routing_problem()` in `src/routing_engine.py`.
-
-The current production solver mode is `bellman_discharge`, which wraps the legacy residual-graph / Bellman-Ford discharge routine. The API also exposes a `progress_callback` hook that can receive `SolverProgress` snapshots after successful discharge iterations. This prepares the app for live progress reporting on larger scenarios.
-
-Experimental Karp/MMC residual search is planned as future work, but is not active in the production path yet.
-
+RouteOpt Agent is intended to grow into a comparative routing-algorithm
+workbench with richer augmentation diagnostics, pivot-sequence analysis,
+additional solver strategies, optional distance-graph preprocessing, and
+agent-assisted interaction built on top of deterministic solver results.
