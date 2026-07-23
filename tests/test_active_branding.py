@@ -1,4 +1,4 @@
-"""Red Team guard against obsolete course artifacts in tracked files."""
+"""Red Team guard against obsolete course artifacts in active repository files."""
 
 from pathlib import Path
 import subprocess
@@ -40,24 +40,32 @@ PROHIBITED_PATH_FRAGMENTS = (
 )
 
 
-def _tracked_paths() -> list[Path]:
-    """Return repository-relative paths reported by ``git ls-files -z``."""
+def _repository_paths() -> list[Path]:
+    """Return deduplicated cached and untracked, non-ignored repository paths."""
 
     result = subprocess.run(
-        ("git", "ls-files", "-z"),
+        (
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ),
         cwd=REPOSITORY_ROOT,
         check=True,
         stdout=subprocess.PIPE,
     )
-    return [
+    paths = [
         Path(raw_path.decode("utf-8"))
         for raw_path in result.stdout.split(b"\0")
         if raw_path
     ]
+    return list(dict.fromkeys(paths))
 
 
 def _is_excluded(relative_path: Path) -> bool:
-    """Return whether a tracked path is outside the active branding guard."""
+    """Return whether a repository path is outside the active branding guard."""
 
     if relative_path == THIS_TEST:
         return True
@@ -67,8 +75,8 @@ def _is_excluded(relative_path: Path) -> bool:
     )
 
 
-def _read_tracked_text(relative_path: Path) -> str | None:
-    """Decode supported or extensionless tracked text, skipping binary data."""
+def _read_repository_text(relative_path: Path) -> str | None:
+    """Decode supported or extensionless repository text, skipping binary data."""
 
     if relative_path.suffix and relative_path.suffix.casefold() not in TEXT_SUFFIXES:
         return None
@@ -88,8 +96,12 @@ def test_tracked_repository_has_no_obsolete_course_artifacts() -> None:
 
     violations: list[str] = []
 
-    for relative_path in _tracked_paths():
+    for relative_path in _repository_paths():
         if _is_excluded(relative_path):
+            continue
+
+        file_path = REPOSITORY_ROOT / relative_path
+        if not file_path.is_file():
             continue
 
         display_path = relative_path.as_posix()
@@ -100,7 +112,7 @@ def test_tracked_repository_has_no_obsolete_course_artifacts() -> None:
                     f"{display_path}: prohibited path fragment {fragment!r}"
                 )
 
-        text = _read_tracked_text(relative_path)
+        text = _read_repository_text(relative_path)
         if text is None:
             continue
 
