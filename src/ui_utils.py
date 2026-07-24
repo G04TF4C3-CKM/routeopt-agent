@@ -1,4 +1,4 @@
-"""Utility helpers for route‑time unit handling in the Streamlit UI.
+"""Utility helpers for runtime and route-time handling in the Streamlit UI.
 
 The backend optimizer works with a single numeric ``time_limit`` value that is
 interpreted in the same units as the scenario's computed route times. Because the
@@ -10,11 +10,28 @@ strings for display.
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 # Types for clarity – the UI restricts the choices to these exact strings.
 DataUnit = Literal["Minutes", "Hours", "Abstract units"]
 InputUnit = Literal["Same as data unit", "Minutes", "Hours"]
+
+
+def format_runtime_seconds(runtime_seconds: float) -> str:
+    """Format a finite, non-negative workflow runtime for concise display."""
+    seconds = float(runtime_seconds)
+    if not math.isfinite(seconds) or seconds < 0:
+        raise ValueError("runtime_seconds must be finite and non-negative")
+
+    if seconds < 1:
+        return f"{seconds * 1000:.0f} ms"
+    if seconds < 60:
+        return f"{seconds:.2f} s"
+
+    minutes = int(seconds // 60)
+    remaining_seconds = seconds - minutes * 60
+    return f"{minutes}m {remaining_seconds:.2f}s"
 
 
 def convert_time_limit_to_data_units(

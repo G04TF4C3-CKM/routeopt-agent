@@ -30,6 +30,7 @@ from src.ui_utils import (
     caption_for_data_unit,
     convert_time_limit_to_data_units,
     format_route_time_for_display,
+    format_runtime_seconds,
 )
 
 
@@ -160,9 +161,12 @@ def _render_manager_summary(st: Any, pd: Any, record: RunRecord) -> None:
         f"{_solver_display_name(record['solver_mode'])} | "
         f"{record['created_at']}"
     )
-    if st.button("View Run Details", key=f"details-{record['run_id']}"):
-        _switch_session_view(st, "details")
-        st.rerun()
+    st.button(
+        "View Run Details",
+        key=f"details-{record['run_id']}",
+        on_click=_switch_session_view,
+        args=(st, "details"),
+    )
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Initial drivers", summary["initial_driver_count"])
@@ -183,12 +187,16 @@ def _render_manager_summary(st: Any, pd: Any, record: RunRecord) -> None:
         format_route_time_for_display(summary["total_time_saved"], data_unit),
     )
 
-    col7, col8 = st.columns(2)
+    col7, col8, col9 = st.columns(3)
     col7.metric(
         "Max driver time",
         format_route_time_for_display(summary["max_driver_time"], data_unit),
     )
     col8.metric("Feasibility", "Feasible" if summary["feasible"] else "Not feasible")
+    col9.metric(
+        "Workflow runtime",
+        format_runtime_seconds(record["runtime_seconds"]),
+    )
 
     st.subheader("Explanation")
     st.write(record["explanation"])
@@ -227,11 +235,18 @@ def _render_manager_summary(st: Any, pd: Any, record: RunRecord) -> None:
 
 def _render_run_details(st: Any, pd: Any, record: RunRecord) -> None:
     """Render diagnostics already captured in the selected run record."""
-    if st.button("Back to Summary", key=f"summary-{record['run_id']}"):
-        _switch_session_view(st, "summary")
-        st.rerun()
+    st.button(
+        "Back to Summary",
+        key=f"summary-{record['run_id']}",
+        on_click=_switch_session_view,
+        args=(st, "summary"),
+    )
 
     st.header("Run Details")
+    st.metric(
+        "Workflow runtime",
+        format_runtime_seconds(record["runtime_seconds"]),
+    )
     result = record["normalized_result"]
 
     st.subheader("Run configuration")
