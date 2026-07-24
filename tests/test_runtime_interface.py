@@ -44,6 +44,22 @@ APP_FUNCTIONS = {
     for node in STREAMLIT_APP_TREE.body
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 }
+DETAIL_TIMING_LABELS = (
+    "Routing-engine runtime",
+    "Problem setup runtime",
+    "Solver runtime",
+    "Progress callback runtime",
+    "Solver logic runtime",
+    "Termination tail runtime",
+    "Result finalization runtime",
+    "Workflow outside routing engine",
+    "Solver bookkeeping remainder",
+)
+AUGMENTATION_TIMING_LABELS = (
+    "Solver phase",
+    "Augmentation runtime",
+    "Cumulative solver runtime",
+)
 
 
 def _call_name(call: ast.Call) -> str | None:
@@ -93,6 +109,20 @@ def _visible_runtime_calls(
             continue
         calls.append(node)
     return calls
+
+
+def _visible_calls_with_label(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    label: str,
+) -> list[ast.Call]:
+    """Find non-JSON presentation calls containing one exact visible label."""
+    return [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and _call_name(node) != "json"
+        and _contains_exact_string(node, label)
+    ]
 
 
 def _find_button_call(
@@ -167,6 +197,56 @@ def _referenced_names(nodes: list[ast.AST]) -> set[str]:
     return names
 
 
+def _function_and_reachable_helpers(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[ast.AST]:
+    return [function, *_reachable_callback_functions(function)]
+
+
+def _assigned_value(nodes: list[ast.AST], target_name: str) -> ast.AST | None:
+    for root in nodes:
+        for node in ast.walk(root):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == target_name
+                for target in node.targets
+            ):
+                return node.value
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == target_name
+            ):
+                return node.value
+    return None
+
+
+def _references_metric(node: ast.AST, metric_name: str) -> bool:
+    accepted_names = {
+        metric_name,
+        f"{metric_name}_seconds",
+        f"total_{metric_name}",
+        f"total_{metric_name}_seconds",
+    }
+    accepted_keys = {
+        metric_name,
+        f"{metric_name}_seconds",
+    }
+    if metric_name == "workflow_runtime":
+        accepted_keys.add("runtime_seconds")
+    return any(
+        (
+            isinstance(child, ast.Name)
+            and child.id in accepted_names
+        )
+        or (
+            isinstance(child, ast.Constant)
+            and isinstance(child.value, str)
+            and child.value in accepted_keys
+        )
+        for child in ast.walk(node)
+    )
+
+
 def test_ui_utils_exposes_format_runtime_seconds() -> None:
     assert callable(FORMAT_RUNTIME_SECONDS), (
         "src.ui_utils must expose format_runtime_seconds(runtime_seconds: float) "
@@ -239,6 +319,120 @@ def test_render_path_visibly_presents_workflow_runtime(
         f"{function_name} must visibly present record runtime with the exact label "
         "'Workflow runtime' and format_runtime_seconds; an st.json field alone "
         "does not satisfy the presentation contract."
+    )
+
+
+@pytest.mark.parametrize("label", DETAIL_TIMING_LABELS)
+def test_run_details_visibly_presents_backend_timing_label(label: str) -> None:
+    function = _function("_render_run_details")
+    assert _visible_calls_with_label(function, label), (
+        "_render_run_details must visibly present the exact backend timing "
+        f"label {label!r}; a raw st.json field alone is insufficient."
+    )
+
+
+@pytest.mark.parametrize("label", AUGMENTATION_TIMING_LABELS)
+def test_run_details_augmentation_display_includes_timing_label(
+    label: str,
+) -> None:
+    function = _function("_render_run_details")
+    assert _visible_calls_with_label(function, label), (
+        "The ordered augmentation display must visibly include the exact "
+        f"column label {label!r}."
+    )
+
+
+def test_run_details_has_explicit_older_timing_fallback() -> None:
+    function = _function("_render_run_details")
+    fallback = "Detailed solver timing was not captured for this run."
+    assert _visible_calls_with_label(function, fallback), (
+        "_render_run_details must explicitly explain missing detailed timing "
+        "for older run-history records."
+    )
+
+
+@pytest.mark.parametrize(
+    ("target_name", "metric_names", "minimum_subtractions"),
+    (
+        (
+            "solver_logic_runtime",
+            ("solver_runtime", "progress_callback_runtime"),
+            1,
+        ),
+        (
+            "workflow_outside_routing_engine",
+            ("workflow_runtime", "routing_engine_runtime"),
+            1,
+        ),
+        (
+            "solver_bookkeeping_remainder",
+            (
+                "solver_runtime",
+                "augmentation_runtime",
+                "progress_callback_runtime",
+                "termination_tail_runtime",
+            ),
+            3,
+        ),
+    ),
+)
+def test_run_details_uses_required_derived_timing_formula(
+    target_name: str,
+    metric_names: tuple[str, ...],
+    minimum_subtractions: int,
+) -> None:
+    function = _function("_render_run_details")
+    nodes = _function_and_reachable_helpers(function)
+    expression = _assigned_value(nodes, target_name)
+
+    assert expression is not None, (
+        f"_render_run_details must calculate {target_name} from captured timing "
+        "fields rather than relabeling another duration."
+    )
+    subtraction_count = sum(
+        isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub)
+        for node in ast.walk(expression)
+    )
+    assert subtraction_count >= minimum_subtractions
+    for metric_name in metric_names:
+        assert _references_metric(expression, metric_name), (
+            f"{target_name} must reference {metric_name}."
+        )
+
+
+def test_run_details_does_not_silently_clamp_negative_solver_remainder() -> None:
+    function = _function("_render_run_details")
+    nodes = _function_and_reachable_helpers(function)
+    expression = _assigned_value(nodes, "solver_bookkeeping_remainder")
+
+    assert expression is not None
+    assert not any(
+        isinstance(node, ast.Call) and _call_name(node) == "max"
+        for node in ast.walk(expression)
+    ), (
+        "A materially negative solver bookkeeping remainder must not be hidden "
+        "with max(0, remainder)."
+    )
+
+    diagnostic_warnings = [
+        node
+        for root in nodes
+        for node in ast.walk(root)
+        if isinstance(node, ast.Call)
+        and _call_name(node) == "warning"
+        and any(
+            isinstance(child, ast.Constant)
+            and isinstance(child.value, str)
+            and (
+                "inconsistent" in child.value.casefold()
+                or "negative" in child.value.casefold()
+            )
+            for child in ast.walk(node)
+        )
+    ]
+    assert diagnostic_warnings, (
+        "_render_run_details must issue a diagnostic warning for materially "
+        "negative or inconsistent timing remainders."
     )
 
 

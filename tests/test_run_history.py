@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import importlib
 import importlib.util
 import json
+import math
 from types import ModuleType
 from typing import Any
 
@@ -17,6 +18,18 @@ RUN_HISTORY_SPEC = importlib.util.find_spec("src.run_history")
 requires_run_history = pytest.mark.skipif(
     RUN_HISTORY_SPEC is None,
     reason="src.run_history has not been implemented yet",
+)
+PROGRESS_TIMING_FIELDS = {
+    "solver_phase",
+    "augmentation_runtime_seconds",
+    "cumulative_solver_runtime_seconds",
+}
+PROGRESS_SUPPORTS_TIMING = PROGRESS_TIMING_FIELDS <= set(
+    getattr(SolverProgress, "__dataclass_fields__", {})
+)
+requires_progress_timing = pytest.mark.skipif(
+    not PROGRESS_SUPPORTS_TIMING,
+    reason="SolverProgress timing fields have not been implemented yet",
 )
 
 
@@ -66,6 +79,42 @@ def _sample_progress_events() -> list[dict[str, Any]]:
             "message": "discharge applied",
         }
     ]
+
+
+def _sample_timing() -> dict[str, float]:
+    return {
+        "routing_engine_runtime_seconds": 0.30,
+        "problem_setup_runtime_seconds": 0.02,
+        "solver_runtime_seconds": 0.20,
+        "progress_callback_runtime_seconds": 0.01,
+        "termination_tail_runtime_seconds": 0.03,
+        "result_finalization_runtime_seconds": 0.04,
+    }
+
+
+def _sample_augmentation_record() -> dict[str, Any]:
+    return {
+        "iteration": 1,
+        "solver_phase": "bellman_firing_path",
+        "applied_path": [-1, 2, 1, 0],
+        "current_driver_count": 1,
+        "current_total_time": 11.5,
+        "current_max_driver_time": 11.5,
+        "augmentation_runtime_seconds": 0.12,
+        "cumulative_solver_runtime_seconds": 0.12,
+        "message": "discharge applied",
+    }
+
+
+def _sample_timed_result() -> dict[str, Any]:
+    result = _sample_result()
+    result["timing"] = _sample_timing()
+    result["augmentation_records"] = [_sample_augmentation_record()]
+    return result
+
+
+def _sample_timed_progress_events() -> list[dict[str, Any]]:
+    return [_sample_augmentation_record()]
 
 
 def _run_record_kwargs(**overrides: Any) -> dict[str, Any]:
@@ -132,6 +181,79 @@ def test_normalize_progress_event_returns_independent_json_snapshot(run_history)
 
     assert normalized["applied_path"] == [-1, 2, 1, 0]
     assert normalized["message"] == "discharge applied"
+    assert PROGRESS_TIMING_FIELDS.isdisjoint(normalized), (
+        "Absent optional timing fields must remain absent rather than becoming "
+        "misleading zero or None values."
+    )
+
+
+@requires_run_history
+@requires_progress_timing
+def test_normalize_progress_event_preserves_optional_timing_fields(run_history):
+    applied_path = [-1, 2, 1, 0]
+    progress = SolverProgress(
+        iteration=1,
+        current_driver_count=1,
+        current_total_time=11.5,
+        current_max_driver_time=11.5,
+        applied_path=applied_path,
+        message="discharge applied",
+        solver_phase="bellman_firing_path",
+        augmentation_runtime_seconds=0.12,
+        cumulative_solver_runtime_seconds=0.12,
+    )
+
+    normalized = run_history.normalize_progress_event(progress)
+
+    assert normalized == _sample_augmentation_record()
+    json.dumps(normalized, allow_nan=False)
+
+    applied_path.append(99)
+    progress.applied_path.append(100)
+    progress.solver_phase = "mutated"
+
+    assert normalized["applied_path"] == [-1, 2, 1, 0]
+    assert normalized["solver_phase"] == "bellman_firing_path"
+
+
+@requires_run_history
+@requires_progress_timing
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("augmentation_runtime_seconds", -0.001),
+        ("augmentation_runtime_seconds", math.nan),
+        ("augmentation_runtime_seconds", math.inf),
+        ("augmentation_runtime_seconds", -math.inf),
+        ("cumulative_solver_runtime_seconds", -0.001),
+        ("cumulative_solver_runtime_seconds", math.nan),
+        ("cumulative_solver_runtime_seconds", math.inf),
+        ("cumulative_solver_runtime_seconds", -math.inf),
+    ),
+)
+def test_normalize_progress_event_rejects_invalid_timing(
+    run_history,
+    field_name,
+    invalid_value,
+):
+    timing_kwargs = {
+        "solver_phase": "bellman_firing_path",
+        "augmentation_runtime_seconds": 0.12,
+        "cumulative_solver_runtime_seconds": 0.12,
+    }
+    timing_kwargs[field_name] = invalid_value
+    progress = SolverProgress(
+        iteration=1,
+        current_driver_count=1,
+        current_total_time=11.5,
+        current_max_driver_time=11.5,
+        applied_path=[-1, 2, 1, 0],
+        message="discharge applied",
+        **timing_kwargs,
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        run_history.normalize_progress_event(progress)
 
 
 @requires_run_history
@@ -181,6 +303,50 @@ def test_build_run_record_contains_required_fields_and_manager_summary(run_histo
 def test_build_run_record_is_strictly_json_serializable(run_history):
     record = run_history.build_run_record(**_run_record_kwargs())
 
+    json.dumps(record, allow_nan=False)
+
+
+@requires_run_history
+def test_build_run_record_preserves_complete_timing_contract(run_history):
+    result = _sample_timed_result()
+    progress_events = _sample_timed_progress_events()
+    record = run_history.build_run_record(
+        **_run_record_kwargs(
+            result=result,
+            progress_events=progress_events,
+            run_id="timed-run",
+        )
+    )
+
+    assert record["schema_version"] == 1
+    assert record["normalized_result"]["timing"] == _sample_timing()
+    assert record["normalized_result"]["augmentation_records"] == [
+        _sample_augmentation_record()
+    ]
+    assert record["progress_events"] == _sample_timed_progress_events()
+    json.dumps(record, allow_nan=False)
+
+    result["timing"]["solver_runtime_seconds"] = 99.0
+    result["augmentation_records"][0]["applied_path"].append(99)
+    progress_events[0]["applied_path"].append(100)
+
+    assert record["normalized_result"]["timing"] == _sample_timing()
+    assert record["normalized_result"]["augmentation_records"][0][
+        "applied_path"
+    ] == [-1, 2, 1, 0]
+    assert record["progress_events"][0]["applied_path"] == [-1, 2, 1, 0]
+
+
+@requires_run_history
+def test_older_record_without_detailed_timing_remains_valid(run_history):
+    record = run_history.build_run_record(
+        **_run_record_kwargs(run_id="legacy-run")
+    )
+
+    assert record["schema_version"] == 1
+    assert "timing" not in record["normalized_result"]
+    assert "augmentation_records" not in record["normalized_result"]
+    assert PROGRESS_TIMING_FIELDS.isdisjoint(record["progress_events"][0])
     json.dumps(record, allow_nan=False)
 
 
@@ -354,6 +520,33 @@ def test_select_run_is_immutable_and_preserves_history_order(run_history):
     assert updated["selected_run_id"] == "older"
     assert updated["active_view"] == "summary"
     assert updated["run_history"] == original_state["run_history"]
+
+
+@requires_run_history
+def test_selecting_older_history_preserves_detailed_timing_exactly(run_history):
+    state = run_history.new_history_state()
+    older = run_history.build_run_record(
+        **_run_record_kwargs(
+            run_id="older-timed",
+            result=_sample_timed_result(),
+            progress_events=_sample_timed_progress_events(),
+        )
+    )
+    newer = run_history.build_run_record(
+        **_run_record_kwargs(run_id="newer-legacy")
+    )
+    state = run_history.add_run_record(state, older)
+    state = run_history.add_run_record(state, newer)
+
+    selected = run_history.get_selected_run(
+        run_history.select_run(state, "older-timed")
+    )
+
+    assert selected["normalized_result"]["timing"] == _sample_timing()
+    assert selected["normalized_result"]["augmentation_records"] == [
+        _sample_augmentation_record()
+    ]
+    assert selected["progress_events"] == _sample_timed_progress_events()
 
 
 @requires_run_history

@@ -15,6 +15,9 @@ class SolverProgress:
         current_max_driver_time: Maximum driver time after the discharge.
         applied_path: The min_path that was just applied (list of node IDs) or None.
         message: Optional diagnostic message.
+        solver_phase: Structural routing-engine phase that produced the augmentation.
+        augmentation_runtime_seconds: Runtime of the successful augmentation.
+        cumulative_solver_runtime_seconds: Solver elapsed time at completion.
     """
     iteration: int
     current_driver_count: int
@@ -22,3 +25,6 @@ class SolverProgress:
     current_max_driver_time: float
     applied_path: Optional[List[int]]
     message: str = ""
+    solver_phase: str | None = None
+    augmentation_runtime_seconds: float | None = None
+    cumulative_solver_runtime_seconds: float | None = None

@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from typing import Any, Literal, Mapping, Sequence, TypeAlias, TypedDict, cast
+import math
+from typing import (
+    Any,
+    Literal,
+    Mapping,
+    NotRequired,
+    Sequence,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 import uuid
 
 from .solver_types import SolverProgress
@@ -22,6 +32,9 @@ class ProgressEventRecord(TypedDict):
     current_max_driver_time: float
     applied_path: list[int] | None
     message: str
+    solver_phase: NotRequired[str]
+    augmentation_runtime_seconds: NotRequired[float]
+    cumulative_solver_runtime_seconds: NotRequired[float]
 
 
 class ManagerSummary(TypedDict):
@@ -91,6 +104,21 @@ def normalize_progress_event(progress: SolverProgress) -> ProgressEventRecord:
         "applied_path": applied_path,
         "message": str(progress.message),
     }
+    if progress.solver_phase is not None:
+        event["solver_phase"] = str(progress.solver_phase)
+    for field_name in (
+        "augmentation_runtime_seconds",
+        "cumulative_solver_runtime_seconds",
+    ):
+        raw_value = getattr(progress, field_name)
+        if raw_value is None:
+            continue
+        value = float(raw_value)
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError(
+                f"{field_name} must be a finite, nonnegative number."
+            )
+        event[field_name] = value
     return cast(
         ProgressEventRecord,
         _json_snapshot(event, label="progress event"),

@@ -248,6 +248,130 @@ def _render_run_details(st: Any, pd: Any, record: RunRecord) -> None:
         format_runtime_seconds(record["runtime_seconds"]),
     )
     result = record["normalized_result"]
+    timing = result.get("timing")
+    raw_augmentation_records = result.get("augmentation_records")
+    required_timing_fields = {
+        "routing_engine_runtime_seconds",
+        "problem_setup_runtime_seconds",
+        "solver_runtime_seconds",
+        "progress_callback_runtime_seconds",
+        "termination_tail_runtime_seconds",
+        "result_finalization_runtime_seconds",
+    }
+    has_detailed_timing = (
+        isinstance(timing, dict)
+        and required_timing_fields <= set(timing)
+        and isinstance(raw_augmentation_records, list)
+    )
+    augmentation_records = (
+        raw_augmentation_records if has_detailed_timing else []
+    )
+
+    st.subheader("Backend timing")
+    if has_detailed_timing:
+        workflow_runtime = float(record["runtime_seconds"])
+        routing_engine_runtime = float(
+            timing["routing_engine_runtime_seconds"]
+        )
+        problem_setup_runtime = float(
+            timing["problem_setup_runtime_seconds"]
+        )
+        solver_runtime = float(timing["solver_runtime_seconds"])
+        progress_callback_runtime = float(
+            timing["progress_callback_runtime_seconds"]
+        )
+        termination_tail_runtime = float(
+            timing["termination_tail_runtime_seconds"]
+        )
+        result_finalization_runtime = float(
+            timing["result_finalization_runtime_seconds"]
+        )
+
+        solver_logic_runtime = solver_runtime - progress_callback_runtime
+        workflow_outside_routing_engine = (
+            workflow_runtime - routing_engine_runtime
+        )
+        total_augmentation_runtime = sum(
+            float(augmentation_record["augmentation_runtime_seconds"])
+            for augmentation_record in augmentation_records
+        )
+        solver_bookkeeping_remainder = (
+            solver_runtime
+            - total_augmentation_runtime
+            - progress_callback_runtime
+            - termination_tail_runtime
+        )
+
+        timing_tolerance = 1e-9
+
+        def _format_derived_runtime(runtime: float) -> str:
+            if runtime < -timing_tolerance:
+                return f"{runtime:.9f} s (inconsistent)"
+            if runtime < 0.0:
+                return format_runtime_seconds(0.0)
+            return format_runtime_seconds(runtime)
+
+        if solver_logic_runtime < -timing_tolerance:
+            st.warning(
+                "Inconsistent timing data: solver logic runtime is negative. "
+                f"Raw value: {solver_logic_runtime:.12g} seconds."
+            )
+        if workflow_outside_routing_engine < -timing_tolerance:
+            st.warning(
+                "Inconsistent timing data: workflow outside routing engine is "
+                "negative. "
+                f"Raw value: {workflow_outside_routing_engine:.12g} seconds."
+            )
+        if solver_bookkeeping_remainder < -timing_tolerance:
+            st.warning(
+                "Inconsistent timing data: solver bookkeeping remainder is "
+                "negative. "
+                f"Raw value: {solver_bookkeeping_remainder:.12g} seconds."
+            )
+
+        timing_col1, timing_col2, timing_col3 = st.columns(3)
+        timing_col1.metric(
+            "Routing-engine runtime",
+            format_runtime_seconds(routing_engine_runtime),
+        )
+        timing_col2.metric(
+            "Problem setup runtime",
+            format_runtime_seconds(problem_setup_runtime),
+        )
+        timing_col3.metric(
+            "Solver runtime",
+            format_runtime_seconds(solver_runtime),
+        )
+
+        timing_col4, timing_col5, timing_col6 = st.columns(3)
+        timing_col4.metric(
+            "Progress callback runtime",
+            format_runtime_seconds(progress_callback_runtime),
+        )
+        timing_col5.metric(
+            "Solver logic runtime",
+            _format_derived_runtime(solver_logic_runtime),
+        )
+        timing_col6.metric(
+            "Termination tail runtime",
+            format_runtime_seconds(termination_tail_runtime),
+        )
+
+        timing_col7, timing_col8, timing_col9 = st.columns(3)
+        timing_col7.metric(
+            "Result finalization runtime",
+            format_runtime_seconds(result_finalization_runtime),
+        )
+        timing_col8.metric(
+            "Workflow outside routing engine",
+            _format_derived_runtime(workflow_outside_routing_engine),
+        )
+        timing_col9.metric(
+            "Solver bookkeeping remainder",
+            _format_derived_runtime(solver_bookkeeping_remainder),
+        )
+    else:
+        st.info("Detailed solver timing was not captured for this run.")
 
     st.subheader("Run configuration")
     st.json(
@@ -300,6 +424,71 @@ def _render_run_details(st: Any, pd: Any, record: RunRecord) -> None:
         st.json(negative_cycle)
 
     st.subheader("Augmentation progress")
+    if has_detailed_timing:
+        augmentation_rows = [
+            {
+                "Step": int(augmentation_record["iteration"]),
+                "Solver phase": str(augmentation_record["solver_phase"]),
+                "Applied walk": list(augmentation_record["applied_path"]),
+                "Driver count": int(
+                    augmentation_record["current_driver_count"]
+                ),
+                "Total route time": format_route_time_for_display(
+                    float(augmentation_record["current_total_time"]),
+                    record["time_unit"],
+                ),
+                "Maximum route time": format_route_time_for_display(
+                    float(augmentation_record["current_max_driver_time"]),
+                    record["time_unit"],
+                ),
+                "Augmentation runtime": format_runtime_seconds(
+                    float(
+                        augmentation_record[
+                            "augmentation_runtime_seconds"
+                        ]
+                    )
+                ),
+                "Cumulative solver runtime": format_runtime_seconds(
+                    float(
+                        augmentation_record[
+                            "cumulative_solver_runtime_seconds"
+                        ]
+                    )
+                ),
+                "Message": str(augmentation_record["message"]),
+            }
+            for augmentation_record in augmentation_records
+        ]
+        if augmentation_rows:
+            augmentation_frame = pd.DataFrame(
+                augmentation_rows,
+                columns=[
+                    "Step",
+                    "Solver phase",
+                    "Applied walk",
+                    "Driver count",
+                    "Total route time",
+                    "Maximum route time",
+                    "Augmentation runtime",
+                    "Cumulative solver runtime",
+                    "Message",
+                ],
+            )
+            st.dataframe(augmentation_frame)
+        else:
+            st.info("No successful augmentations were recorded for this run.")
+        st.caption(
+            "Augmentation runtime includes search, validation, application, "
+            "state update, and post-step metrics; it excludes progress-callback "
+            "execution. Solver runtime includes progress callbacks. Cumulative "
+            "solver runtime may include earlier callbacks, failed attempts, and "
+            "solver phase transitions. Termination tail begins after the final "
+            "successful callback. Solver bookkeeping remainder captures "
+            "unrecorded failed attempts and loop orchestration. Separate search "
+            "and application timings are not captured."
+        )
+
+    st.markdown("**Captured progress callback events**")
     progress_events = record["progress_events"]
     if progress_events:
         progress_frame = pd.DataFrame(
@@ -319,10 +508,17 @@ def _render_run_details(st: Any, pd: Any, record: RunRecord) -> None:
 
     st.markdown("**Final result applied_paths (execution order)**")
     st.json(result.get("applied_paths", []))
-    st.caption(
-        "Structural augmentation classification and per-step route snapshots "
-        "require later solver instrumentation; they are not inferred here."
-    )
+    if has_detailed_timing:
+        st.caption(
+            "Solver phases come from routing-engine branches and are not "
+            "inferred from messages or walk shape. Per-step route snapshots "
+            "remain unavailable."
+        )
+    else:
+        st.caption(
+            "Structural augmentation classification and per-step route snapshots "
+            "require later solver instrumentation; they are not inferred here."
+        )
 
     st.subheader("Route comparison")
     initial_column, final_column = st.columns(2)
